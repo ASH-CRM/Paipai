@@ -2678,14 +2678,6 @@ function scriptOfCode(code){
   if(c.startsWith('ru')) return 'ru';
   return 'latin';
 }
-/* ถ้าข้อความที่ได้ยินเป็นอักษรของอีกฝั่งชัดเจน → สลับฝั่งให้ถูกก่อนแปล */
-function autoFixSide(text){
-  if(!freeFlow) return;
-  const sc=scriptOf(text); if(!sc) return;
-  const cur=scriptOfCode(currentLang().code), oth=scriptOfCode(otherLang().code);
-  if(cur===oth) return;                       // อักษรเหมือนกัน แยกไม่ได้ ปล่อยตามเดิม
-  if(sc!==cur && sc===oth) turn=(turn==='me'?'them':'me');
-}
 const convo=[];
 
 function currentLang(){ return langBy(turn==='me'?myLangSel.value:theirLangSel.value); }
@@ -2987,18 +2979,7 @@ function startWatchdog(){
       hasHeardText=false;
       try{ if(rec) rec.stop(); }catch(e){}
     }
-    // ★ โหมดอิสระ: ฟังอยู่แต่ไม่ได้ผลนาน = อาจเป็นอีกฝั่งพูด → สลับภาษาที่ฟังเองเงียบๆ
-    if(freeFlow && speakMode!=='ptt' && phase==='listening' && !paused && !gotAnyResult
-       && Date.now()-turnStartAt>15000 && huntFlips<3
-       && Date.now()-lastDeliberateFlip>45000){
-      huntFlips++;
-      turn=(turn==='me'?'them':'me');
-      stopRec(); turnStartAt=Date.now(); noHearHinted=false;
-      setStatus('🔎 กำลังฟังภาษา '+currentLang().flag+' '+currentLang().name+' …');
-      setTurnBar();
-      restartTimer=setTimeout(startRecognition,250);
-      return;
-    }
+    // (เลิกสลับภาษาเองตอนเงียบ: ความเงียบไม่ได้บอกว่าใครจะพูด — ทำให้คนพูดไทยต่อโดนฟังเป็นอังกฤษ)
     if(phase==='listening' && !gotAnyResult && !noHearHinted && Date.now()-turnStartAt>9000){
       noHearHinted=true;
       if((currentLang().srAlt||[]).length && srAdvance(currentLang())){
@@ -3113,7 +3094,7 @@ function startRecognition(){
   rec.onend = ()=>{
     recActive=false; recStarting=false; clearTimeout(startGuard);
     if(!running || phase!=='listening') return;
-    const t=(finalText.trim() || interimText.trim());
+    const t=(finalText+' '+interimText).replace(/\s+/g,' ').trim();   // ★ เก็บครบทั้งท่อนที่สรุปแล้วและท่อนท้าย
 
     if(speakMode==='ptt'){
       // ★ จุดเสี่ยง 2: ผู้ใช้แตะจบ → รวมทุกท่อนที่อัดไว้ แล้วส่งแปลครั้งเดียว
@@ -3170,9 +3151,16 @@ Sentence: ${text}`;
 }
 
 let lastEngine='';
-async function translateText(text, from, to){
-  const prompt=buildPrompt(text, from, to);
-
+/* เรียก Claude ตามลำดับ: คีย์ของผู้ใช้ → เซิร์ฟเวอร์กลาง (Netlify) → ตรง | ไม่สำเร็จ = null */
+async function callClaude(prompt){
+  const body=JSON.stringify({
+    model:"claude-haiku-4-5-20251001",max_tokens:1000,
+    messages:[{role:"user",content:prompt}]
+  });
+  const readOut=async res=>{
+    const data=await res.json();
+    return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+  };
   if(apiKey){
     try{
       const ctrlA=(typeof AbortController!=='undefined')?new AbortController():null;
@@ -3186,14 +3174,10 @@ async function translateText(text, from, to){
           "anthropic-version":"2023-06-01",
           "anthropic-dangerous-direct-browser-access":"true"
         },
-        body:JSON.stringify({
-          model:"claude-haiku-4-5-20251001",max_tokens:1000,
-          messages:[{role:"user",content:prompt}]
-        })
+        body
       });
       if(res.ok){
-        const data=await res.json();
-        const out=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+        const out=await readOut(res);
         if(out){ lastEngine='claude-key'; return out; }
       }else if(res.status===401){
         setStatus('API Key ไม่ถูกต้อง — ตรวจสอบในเมนู ⚙️ ครับ','err');
@@ -3208,14 +3192,10 @@ async function translateText(text, from, to){
     const res=await fetch("/.netlify/functions/translate",{
       signal: ctrlB?ctrlB.signal:undefined,
       method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:"claude-haiku-4-5-20251001",max_tokens:1000,
-        messages:[{role:"user",content:prompt}]
-      })
+      body
     });
     if(res.ok){
-      const data=await res.json();
-      const out=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+      const out=await readOut(res);
       if(out){ lastEngine='claude-server'; return out; }
     }
   }catch(e){}
@@ -3223,25 +3203,86 @@ async function translateText(text, from, to){
   try{
     const res=await fetch("https://api.anthropic.com/v1/messages",{
       method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:"claude-haiku-4-5-20251001",max_tokens:1000,
-        messages:[{role:"user",content:prompt}]
-      })
+      body
     });
     if(res.ok){
-      const data=await res.json();
-      const out=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+      const out=await readOut(res);
       if(out){ lastEngine='claude'; return out; }
     }
-    throw new Error('x');
   }catch(e){}
-
+  return null;
+}
+async function basicTranslate(text, from, to){
   const pair=encodeURIComponent(from.code+'|'+to.code);
   const r=await fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(text)+'&langpair='+pair);
   const j=await r.json();
   const out=j && j.responseData && j.responseData.translatedText;
   if(out && !/QUERY LENGTH|INVALID/i.test(out)){ lastEngine='basic'; return out; }
   throw new Error('translate-failed');
+}
+async function translateText(text, from, to){
+  const out=await callClaude(buildPrompt(text, from, to));
+  if(out) return out;
+  return basicTranslate(text, from, to);
+}
+
+/* ★★ แปลบทสนทนาแบบ "จับภาษาเอง": ตัวถอดเสียงฟังได้ทีละภาษา (heard)
+   ถ้าอีกฝั่งพูด ข้อความจะออกมาเป็นคำอ่านเพี้ยนๆ (เช่น อังกฤษเขียนเป็นอักษรไทย)
+   → ให้ Claude ตัดสินว่าพูดภาษาไหน กู้ประโยคจริงคืนมา แล้วแปลไปอีกภาษา ไม่ต้องให้พูดซ้ำ
+   คืนค่า {spoken:'heard'|'other'|'unclear', orig, trans} */
+function buildTurnPrompt(text, heard, other){
+  let ctx='';
+  const recent=convo.slice(-4);
+  if(recent.length){
+    ctx='Recent conversation so far (for context only):\n'+
+      recent.map(c=>`[${c.fromName}] ${c.orig} → [${c.toName}] ${c.trans}`).join('\n')+'\n\n';
+  }
+  return ctx+
+`You are a professional live interpreter for a face-to-face conversation between a ${heard.claude} speaker and a ${other.claude} speaker. Either person may speak at any time, several sentences in a row.
+
+The text below came from a speech recognizer that was set to ${heard.claude}.
+- If the person spoke ${heard.claude}, the text is that sentence (it may contain small recognition errors).
+- If the person actually spoke ${other.claude}, the recognizer may have written it as a phonetic transcription in ${heard.claude} (e.g. English heard by a Thai recognizer: "ไอ วอนท์ ทู โก ทู เดอะ สเตชั่น" = "I want to go to the station"; Thai heard by an English recognizer: "sa wad dee krub" = "สวัสดีครับ"), or as real ${other.claude} words. Reconstruct what was really said.
+
+Steps:
+1. Decide which language was actually spoken: "A" = ${heard.claude}, "B" = ${other.claude}.
+2. Write the sentence as it was really said, in the spoken language and its normal script (fix obvious recognition errors).
+3. Translate it into the OTHER language: meaning and intent, not word-for-word, natural and polite like a native speaker in casual conversation. Use the conversation context to resolve pronouns and follow-ups.
+- ALWAYS translate, even very short, repeated or unclear input (e.g. "ไม่ ไม่ ไม่" → "No, no, no"). Never refuse, never explain.
+- Only if the text is truly meaningless in BOTH languages, use "?" as the spoken value.
+
+Respond with ONLY this JSON on one line, nothing else:
+{"spoken":"A","original":"...","translation":"..."}
+
+Text: ${text}`;
+}
+function parseTurnOut(out){
+  const m=String(out||'').match(/\{[\s\S]*\}/);
+  if(!m) return null;
+  try{
+    const j=JSON.parse(m[0]);
+    const sp=String(j.spoken||'').trim().toUpperCase();
+    if(sp==='?') return {spoken:'unclear'};
+    if(sp!=='A' && sp!=='B') return null;
+    const trans=String(j.translation||'').trim();
+    if(!trans) return null;
+    return {spoken: sp==='A'?'heard':'other', orig:String(j.original||'').trim(), trans};
+  }catch(e){ return null; }
+}
+async function translateTurn(text, heard, other){
+  const out=await callClaude(buildTurnPrompt(text, heard, other));
+  if(out){
+    if(/__WRONGLANG__/.test(out)) return {spoken:'unclear'};
+    const r=parseTurnOut(out);
+    if(r) return r;
+    // ตอบมาไม่เป็น JSON → ถือว่าเป็นคำแปลตรงๆ ตามภาษาที่ตัวถอดเสียงฟัง
+    if(!/^\s*\{/.test(out)) return {spoken:'heard', orig:text, trans:out};
+  }
+  // ★ ไม่มี Claude → ระบบพื้นฐาน: เดาภาษาจากชนิดตัวอักษร
+  const sc=scriptOf(text), hs=scriptOfCode(heard.code), os=scriptOfCode(other.code);
+  const isOther = !!sc && hs!==os && sc!==hs && sc===os;
+  const from=isOther?other:heard, to=isOther?heard:other;
+  return {spoken:isOther?'other':'heard', orig:text, trans:await basicTranslate(text, from, to)};
 }
 
 let lastUtterText='', lastUtterTime=0;
@@ -3266,74 +3307,57 @@ async function handleUtterance(text){
   }
 }
 async function _handleUtterance(text){
-  autoFixSide(text);                       // ★ จับภาษาจากอักษรที่ได้ยิน แล้วเลือกทิศทางแปลให้ถูก
-  // ★★ โหมดอิสระ: ถอดเสียงได้แต่ "มั่นใจต่ำมาก" = น่าจะเป็นอีกภาษาที่ตัวถอดเสียงยังไม่ได้ตั้งไว้
-  //    → สลับภาษาแล้วฟังใหม่ทันที (ทำได้ครั้งเดียวต่อประโยค กันวนลูป)
-  if(freeFlow && lastConf>=0 && lastConf<0.55 && confFlips<1 && text.length<60){
-    confFlips++; lastDeliberateFlip=Date.now(); huntFlips=99;
-    const nextL=otherLang();
-    turn=(turn==='me'?'them':'me');
-    setStatus('🔎 เหมือนจะเป็นภาษา '+nextL.flag+' '+nextL.name+' — กำลังฟังใหม่ พูดอีกครั้งได้เลยครับ');
-    stopRec(); clearTimeout(restartTimer);
-    setTurnBar();
+  const heardSide=turn;                    // ฝั่งที่ตัวถอดเสียงกำลังฟังอยู่ตอนได้ข้อความนี้
+  const flip=s=>(s==='me'?'them':'me');
+  phase='translating'; setTurnBar();
+  setStatus('⏳ กำลังแปล: "'+(text.length>60?text.slice(0,60)+'…':text)+'"');
+  let r=null;
+  for(let attempt=0; attempt<2 && !r; attempt++){
+    try{ r=await translateTurn(text, currentLangOf(heardSide), currentLangOf(flip(heardSide))); }
+    catch(e){
+      if(attempt===0){                     // ★ ลองใหม่อัตโนมัติ 1 ครั้ง (เน็ตสะดุดชั่วคราวเป็นเรื่องปกติ)
+        setStatus('⏳ เน็ตสะดุด — กำลังลองแปลอีกครั้ง…');
+        await new Promise(res=>setTimeout(res,1200));
+      }
+    }
+    if(!running && !r) return;
+  }
+  if(!r){
+    // ★ ยังไม่สำเร็จ: เก็บข้อความไว้ให้เห็น ไม่ทิ้งหาย แตะบับเบิลเพื่อลองแปลใหม่ได้
+    addFailedBubble(heardSide, text);
+    setStatus('✗ แปลไม่สำเร็จ — ข้อความถูกเก็บไว้แล้ว แตะที่บับเบิลเพื่อลองแปลใหม่','err');
+    phase='listening'; setTurnBar();
+    restartTimer=setTimeout(()=>{ if(running) listen(); },1200);
+    return;
+  }
+  if(r.spoken==='unclear'){
+    // ★★ ฟังไม่ออกทั้งสองภาษา = น่าจะตั้งตัวถอดเสียงผิดภาษา → สลับภาษาแล้วให้พูดอีกครั้ง
+    //    (สลับได้ครั้งเดียวติดกัน กันวนไปมา)
+    if(confFlips<1){ confFlips++; turn=flip(turn); }
+    else confFlips=0;
+    const nl=currentLang();
+    setStatus('🔁 ฟังไม่ชัด — กำลังฟังภาษา '+nl.flag+' '+nl.name+' พูดอีกครั้งได้เลยครับ');
+    stopRec(); clearTimeout(restartTimer); phase='listening'; setTurnBar();
     restartTimer=setTimeout(()=>{ if(running) listen(); }, 250);
     return;
   }
   confFlips=0;
-  huntFlips=0; lastDeliberateFlip=0;
-  const from=currentLang(), to=otherLang();
-  const speakerSide=turn; // ★ จำว่าใครพูด เพื่อใช้เสียงตัวแทนของคนนั้น
-  phase='translating'; setTurnBar();
-  setStatus('⏳ กำลังแปล: "'+(text.length>60?text.slice(0,60)+'…':text)+'"');
-  try{
-    const out=await translateText(text, from, to);
-    if(/__WRONGLANG__/.test(out)) throw {wrongLang:true};
-    convo.push({speaker:speakerSide, orig:text, trans:out, fromName:from.claude, toName:to.claude});
-    if(convo.length>20) convo.shift();
-    addBubble(speakerSide, text, out);
-    if(lastEngine==='basic' && !apiKey)
-      setStatus('💡 กำลังใช้ระบบแปลพื้นฐาน — ใส่ API Key ในเมนู ⚙️ เพื่อให้แปลแม่นระดับเจ้าของภาษา');
-    else setStatus('');
-    phase='speaking'; setTurnBar();
-    speakAs(speakerSide, out, to.code, ()=>{   // ★ อ่านด้วยเสียงตัวแทนของผู้พูด
-      if(!running) return;
-      if(!freeFlow) turn=(turn==='me'?'them':'me');   // ★ โหมดอิสระ: คงภาษาเดิมไว้ ใครพูดต่อก็จับได้
-      setTimeout(()=>{ if(running) listen(); }, 400);   // ★ รอเครื่องปล่อยไมค์ก่อน กันเปิดไม่ติด
-    });
-  }catch(err){
-    // ★★ AI ยืนยันว่าไม่ใช่ภาษานี้ → สลับไปฟังอีกภาษาทันที (โหมดอิสระ)
-    if(err && err.wrongLang && freeFlow && confFlips<2){
-      confFlips++; lastDeliberateFlip=Date.now(); huntFlips=99;   // ★ ล็อกไว้ ห้ามตัวตามหาสลับกลับเอง
-      turn=(turn==='me'?'them':'me');
-      const nl=currentLang();
-      setStatus('🔁 สลับเป็นภาษา '+nl.flag+' '+nl.name+' แล้ว — พูดอีกครั้งได้เลยครับ');
-      stopRec(); clearTimeout(restartTimer); phase='listening'; setTurnBar();
-      restartTimer=setTimeout(()=>{ if(running) listen(); }, 250);
-      return;
-    }
-    // ★ ลองใหม่อัตโนมัติ 1 ครั้ง (เน็ตสะดุดชั่วคราวเป็นเรื่องปกติ)
-    try{
-      setStatus('⏳ เน็ตสะดุด — กำลังลองแปลอีกครั้ง…');
-      await new Promise(r=>setTimeout(r,1200));
-      const out2=await translateText(text, from, to);
-      convo.push({speaker:speakerSide, orig:text, trans:out2, fromName:from.claude, toName:to.claude});
-      if(convo.length>20) convo.shift();
-      addBubble(speakerSide, text, out2);
-      setStatus('');
-      phase='speaking'; setTurnBar();
-      speakAs(speakerSide, out2, to.code, ()=>{
-        if(!running) return;
-        if(!freeFlow) turn=(turn==='me'?'them':'me');
-        setTimeout(()=>{ if(running) listen(); }, 400);
-      });
-      return;
-    }catch(err2){
-      // ★ ยังไม่สำเร็จ: เก็บข้อความไว้ให้เห็น ไม่ทิ้งหาย แตะบับเบิลเพื่อลองแปลใหม่ได้
-      addFailedBubble(speakerSide, text);
-      setStatus('✗ แปลไม่สำเร็จ — ข้อความถูกเก็บไว้แล้ว แตะที่บับเบิลเพื่อลองแปลใหม่','err');
-      restartTimer=setTimeout(listen,1200);
-    }
-  }
+  const speakerSide = r.spoken==='other' ? flip(heardSide) : heardSide;   // ★ คนที่พูดจริง
+  const from=currentLangOf(speakerSide), to=currentLangOf(flip(speakerSide));
+  const orig = (r.spoken==='other' && r.orig) ? r.orig : text;           // อีกฝั่งพูด → แสดงประโยคที่กู้คืนแล้ว
+  // ★ โหมดอิสระ: ฟังภาษาของคนที่เพิ่งพูดต่อ (พูดซ้ำ/พูดต่อได้เลย) · โหมดสลับฝั่ง: ส่งตาให้อีกคน
+  turn = freeFlow ? speakerSide : flip(speakerSide);
+  convo.push({speaker:speakerSide, orig, trans:r.trans, fromName:from.claude, toName:to.claude});
+  if(convo.length>20) convo.shift();
+  addBubble(speakerSide, orig, r.trans);
+  if(lastEngine==='basic' && !apiKey)
+    setStatus('💡 กำลังใช้ระบบแปลพื้นฐาน — ใส่ API Key ในเมนู ⚙️ เพื่อให้แปลแม่นระดับเจ้าของภาษา');
+  else setStatus('');
+  phase='speaking'; setTurnBar();
+  speakAs(speakerSide, r.trans, to.code, ()=>{   // ★ อ่านด้วยเสียงตัวแทนของผู้พูด
+    if(!running) return;
+    setTimeout(()=>{ if(running) listen(); }, 400);   // ★ รอเครื่องปล่อยไมค์ก่อน กันเปิดไม่ติด
+  });
 }
 
 /* บับเบิลข้อความที่แปลไม่สำเร็จ — แตะเพื่อลองแปลใหม่ (ข้อความไม่หาย) */

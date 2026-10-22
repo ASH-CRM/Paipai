@@ -1,5 +1,5 @@
 // Service worker แบบเรียบง่าย: ทำให้ติดตั้งเป็นแอปได้ และเปิดหน้าแอปได้เร็ว
-const CACHE = 'paipai-v162';
+const CACHE = 'paipai-v163';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
