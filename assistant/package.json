@@ -1,0 +1,10 @@
+{
+  "name": "paipai-assistant",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
+    "@netlify/blobs": "11.1.6"
+  }
+}

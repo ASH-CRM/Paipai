@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#0E1A2B">
+<title>ผู้ช่วย AI</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+  :root{
+    --bg:#0E1A2B; --panel:#16263C; --panel-2:#1D3150; --line:#27405F;
+    --ink:#EAF2FF; --muted:#8FA6C4; --accent:#5FA0E8; --accent-2:#8B7CF6;
+    --danger:#FF7A7A; --ok:#5BD69B; --user:#2E5D8F;
+    --radius:16px;
+    --safe-b:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:'Noto Sans Thai',system-ui,sans-serif;font-size:16px;line-height:1.6;overflow:hidden}
+  button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
+  input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
+  .hide{display:none!important}
+  .view{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;overflow-y:auto}
+
+  /* ---------- ไอคอนผู้ช่วย (ตัวชั่วคราว — เปลี่ยนดีไซน์ได้ที่ .orb ที่เดียว) ---------- */
+  .orb{width:var(--s,56px);height:var(--s,56px);border-radius:50%;flex:none;position:relative;
+    background:radial-gradient(circle at 32% 28%,#fff 0 6%,transparent 26%),
+               conic-gradient(from 200deg,var(--accent),var(--accent-2),#4FD1C5,var(--accent));
+    box-shadow:0 0 calc(var(--s,56px)*.45) rgba(95,160,232,.45)}
+  .orb.busy{animation:orbPulse 1.3s ease-in-out infinite}
+  @keyframes orbPulse{50%{transform:scale(.88);box-shadow:0 0 calc(var(--s,56px)*.8) rgba(139,124,246,.6)}}
+
+  /* ---------- ล็อกอิน ---------- */
+  .brand{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:28px;text-align:center}
+  .brand h1{margin:0;font-size:24px;font-weight:700}
+  .brand p{margin:0;color:var(--muted);font-size:14px}
+  .profiles{display:flex;flex-wrap:wrap;justify-content:center;gap:18px;max-width:520px}
+  .profile{background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:8px;width:96px;padding:6px;border-radius:14px}
+  .profile:active{transform:scale(.95)}
+  .avatar{width:var(--a,72px);height:var(--a,72px);border-radius:50%;display:grid;place-items:center;font-size:calc(var(--a,72px)*.5);
+    background:var(--c,#5FA0E8);box-shadow:inset 0 -4px 0 rgba(0,0,0,.18);flex:none;line-height:1}
+  .profile span{font-size:15px;font-weight:500;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .pinBox{display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:320px}
+  .pinName{font-size:18px;font-weight:600}
+  .dots{display:flex;gap:12px;height:22px;align-items:center;margin:4px 0}
+  .dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--muted);display:block}
+  .dots i.on{background:var(--ink);border-color:var(--ink)}
+  .dots.shake{animation:shake .35s}
+  @keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+  .pinMsg{min-height:22px;font-size:14px;color:var(--danger);text-align:center}
+  .keypad{display:grid;grid-template-columns:repeat(3,76px);gap:14px;margin-top:6px}
+  .key{height:76px;border-radius:50%;border:none;background:var(--panel);font-size:26px;font-weight:500}
+  .key:active{background:var(--panel-2)}
+  .key.fn{background:transparent;font-size:22px;color:var(--muted)}
+  .key.go{background:var(--accent);color:#0B1626}
+  .linkBtn{background:none;border:none;color:var(--muted);font-size:14px;padding:10px;text-decoration:underline}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;width:100%;max-width:420px}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+  .field label{font-size:13px;color:var(--muted)}
+  .field input,.field select{background:var(--bg);border:1.5px solid var(--line);border-radius:12px;padding:11px 12px;outline:none;width:100%}
+  .field input:focus{border-color:var(--accent)}
+  .hint{font-size:12.5px;color:var(--muted);margin:-6px 0 12px}
+  .btn{border:none;border-radius:12px;padding:12px 16px;font-weight:600;background:var(--accent);color:#0B1626;width:100%}
+  .btn.ghost{background:var(--panel-2);color:var(--ink)}
+  .btn.danger{background:transparent;border:1px solid var(--danger);color:var(--danger)}
+  .btn:disabled{opacity:.5}
+  .err{color:var(--danger);font-size:14px;min-height:20px;margin:4px 0 10px}
+  .emojis{display:flex;flex-wrap:wrap;gap:6px}
+  .emojis button{width:40px;height:40px;border-radius:10px;border:1.5px solid transparent;background:var(--bg);font-size:22px;line-height:1}
+  .emojis button.on{border-color:var(--accent)}
+  .colors{display:flex;gap:8px;flex-wrap:wrap}
+  .colors button{width:30px;height:30px;border-radius:50%;border:3px solid transparent}
+  .colors button.on{border-color:var(--ink)}
+
+  /* ---------- หน้าแชต ---------- */
+  #appView{position:fixed;inset:0;display:flex}
+  #sidebar{width:280px;background:#0B1524;border-right:1px solid var(--line);display:flex;flex-direction:column;padding:12px;gap:10px;flex:none}
+  .newChat{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-weight:600;width:100%;text-align:left}
+  .chatList{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin:0 -4px;padding:0 4px}
+  .chatList h4{font-size:12px;color:var(--muted);font-weight:500;margin:10px 8px 4px}
+  .chatItem{display:flex;align-items:center;border-radius:10px}
+  .chatItem.on,.chatItem:hover{background:var(--panel)}
+  .chatItem button.t{flex:1;min-width:0;background:none;border:none;text-align:left;padding:8px 10px;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chatItem button.x{background:none;border:none;color:var(--muted);padding:6px 10px;opacity:0;font-size:14px}
+  .chatItem:hover button.x,.chatItem.on button.x{opacity:1}
+  .empty{color:var(--muted);font-size:13.5px;padding:8px 10px}
+  .meBtn{display:flex;align-items:center;gap:10px;background:none;border:none;border-radius:12px;padding:8px;width:100%;text-align:left}
+  .meBtn:hover{background:var(--panel)}
+  .meBtn b{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .menu{position:absolute;bottom:64px;left:12px;width:256px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:0 12px 40px rgba(0,0,0,.45);z-index:30}
+  .menu button{display:block;width:100%;text-align:left;background:none;border:none;padding:10px 12px;border-radius:10px;font-size:15px}
+  .menu button:hover{background:var(--panel-2)}
+
+  main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+  header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid transparent}
+  header h2{margin:0;font-size:17px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .iconBtn{background:none;border:none;width:40px;height:40px;border-radius:10px;font-size:20px;display:grid;place-items:center;color:var(--muted)}
+  .iconBtn:hover{background:var(--panel)}
+  #menuBtn{display:none}
+
+  #thread{flex:1;overflow-y:auto;padding:12px 16px 24px}
+  .inner{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+  .welcome{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:10px;padding:20px 0}
+  .welcome h3{margin:10px 0 0;font-size:24px;font-weight:700}
+  .welcome p{margin:0;color:var(--muted)}
+  .chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:22px;width:100%;max-width:560px}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;text-align:left;font-size:14.5px}
+  .chip:hover{border-color:var(--accent)}
+  .chip small{display:block;color:var(--muted);font-size:12.5px}
+
+  .msg{display:flex;gap:12px;align-items:flex-start}
+  .msg.user{justify-content:flex-end}
+  .msg.user .body{background:var(--user);border-radius:18px 18px 4px 18px;padding:10px 14px;max-width:85%;white-space:pre-wrap;word-break:break-word}
+  .msg.ai .body{flex:1;min-width:0;padding-top:2px;word-break:break-word}
+  .msg.ai .orb{--s:30px;margin-top:2px}
+  .status{color:var(--muted);font-size:14.5px;display:flex;align-items:center;gap:8px}
+  .status::after{content:'';width:6px;height:6px;border-radius:50%;background:var(--muted);animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:.2}}
+  .md p{margin:0 0 .7em}.md p:last-child{margin-bottom:0}
+  .md ul,.md ol{margin:.2em 0 .8em;padding-left:1.4em}
+  .md li{margin:.15em 0}
+  .md h1,.md h2,.md h3{font-size:1.08em;margin:1em 0 .4em}
+  .md a{color:var(--accent)}
+  .md code{background:var(--panel);border-radius:6px;padding:.1em .35em;font-size:.92em}
+  .md pre{background:#0B1524;border:1px solid var(--line);border-radius:12px;padding:12px;overflow-x:auto}
+  .md pre code{background:none;padding:0}
+  .md table{border-collapse:collapse;display:block;overflow-x:auto;margin:.4em 0 .8em;font-size:.94em}
+  .md th,.md td{border:1px solid var(--line);padding:6px 10px;text-align:left}
+  .md th{background:var(--panel)}
+  .md blockquote{margin:.4em 0;padding-left:12px;border-left:3px solid var(--line);color:var(--muted)}
+  .tools{display:flex;gap:2px;margin-top:6px}
+  .tools button{background:none;border:none;color:var(--muted);font-size:13px;padding:4px 8px;border-radius:8px}
+  .tools button:hover{background:var(--panel);color:var(--ink)}
+  .errLine{color:var(--danger);font-size:14.5px}
+  .errLine button{margin-left:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:2px 10px;font-size:13px}
+
+  .composer{padding:8px 16px calc(12px + var(--safe-b))}
+  .box{max-width:760px;margin:0 auto;background:var(--panel);border:1.5px solid var(--line);border-radius:24px;display:flex;align-items:flex-end;gap:6px;padding:6px 6px 6px 16px}
+  .box:focus-within{border-color:#3B6597}
+  #input{flex:1;background:none;border:none;outline:none;resize:none;max-height:180px;padding:9px 0;line-height:1.5}
+  .round{width:42px;height:42px;border-radius:50%;border:none;display:grid;place-items:center;font-size:19px;flex:none;background:var(--panel-2);color:var(--ink)}
+  #sendBtn{background:var(--accent);color:#0B1626}
+  #sendBtn:disabled{opacity:.35}
+  #micBtn.rec{background:var(--danger);color:#fff;animation:orbPulse 1.2s infinite}
+  .foot{max-width:760px;margin:6px auto 0;text-align:center;font-size:11.5px;color:var(--muted)}
+
+  /* ---------- หน้าต่าง ---------- */
+  .modal{position:fixed;inset:0;background:rgba(4,10,20,.65);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:18px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;padding:18px}
+  .sheet h3{margin:0 0 14px;font-size:18px;display:flex;align-items:center;justify-content:space-between}
+  .uRow{display:flex;align-items:center;gap:12px;padding:10px;border-radius:12px;background:var(--bg);margin-bottom:8px}
+  .uRow .info{flex:1;min-width:0}
+  .uRow .info b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .badge{font-size:11.5px;padding:1px 8px;border-radius:99px;background:var(--panel-2);color:var(--muted);margin-right:4px}
+  .badge.admin{background:#3A2F6B;color:#CFC6FF}
+  .badge.off{background:#4A2323;color:#FFB4B4}
+  .uRow button{background:var(--panel-2);border:none;border-radius:10px;padding:7px 12px;font-size:13.5px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:#22385A;border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;z-index:60;max-width:calc(100% - 32px)}
+
+  @media (max-width:820px){
+    #sidebar{position:fixed;inset:0 auto 0 0;z-index:40;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.5)}
+    #sidebar.open{transform:none}
+    #scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:35}
+    #menuBtn{display:grid}
+    .chatItem button.x{opacity:1}
+    .chips{grid-template-columns:1fr}
+    .chip:nth-child(n+4){display:none}
+  }
+</style>
+</head>
+<body>
+
+<div id="bootView" class="view"><div class="orb busy" style="--s:64px"></div></div>
+
+<!-- ตั้งค่าครั้งแรก: สร้างผู้ดูแล -->
+<div id="setupView" class="view hide">
+  <div class="brand"><div class="orb" style="--s:72px"></div><h1>เริ่มต้นใช้งานผู้ช่วย AI</h1><p>สร้างบัญชีผู้ดูแลระบบคนแรก</p></div>
+  <form class="card" id="setupForm" autocomplete="off">
+    <div class="field"><label>รหัสตั้งค่า (SETUP_CODE ที่ตั้งไว้ใน Netlify)</label><input id="suCode" type="password" required></div>
+    <div class="field"><label>ชื่อของคุณ</label><input id="suName" maxlength="40" required></div>
+    <div class="field"><label>รูปประจำตัว</label><div class="emojis" id="suEmojis"></div></div>
+    <div class="row2">
+      <div class="field"><label>PIN (ตัวเลข 4–8 หลัก)</label><input id="suPin" inputmode="numeric" pattern="\d{4,8}" type="password" required></div>
+      <div class="field"><label>ยืนยัน PIN</label><input id="suPin2" inputmode="numeric" pattern="\d{4,8}" type="password" required></div>
+    </div>
+    <div class="err" id="suErr"></div>
+    <button class="btn" type="submit">สร้างบัญชีและเข้าใช้งาน</button>
+  </form>
+</div>
+
+<!-- เลือกผู้ใช้ -->
+<div id="pickView" class="view hide">
+  <div class="brand"><div class="orb" style="--s:72px"></div><h1>ผู้ช่วย AI</h1><p>ใครกำลังใช้งาน?</p></div>
+  <div class="profiles" id="profiles"></div>
+</div>
+
+<!-- ใส่ PIN -->
+<div id="pinView" class="view hide">
+  <div class="pinBox">
+    <div class="avatar" id="pinAvatar" style="--a:84px"></div>
+    <div class="pinName" id="pinName"></div>
+    <div class="dots" id="dots"></div>
+    <div class="pinMsg" id="pinMsg"></div>
+    <div class="keypad" id="keypad"></div>
+    <button class="linkBtn" id="pinBack">← เปลี่ยนผู้ใช้</button>
+  </div>
+</div>
+
+<!-- แอปหลัก -->
+<div id="appView" class="hide">
+  <div id="scrim" class="hide"></div>
+  <aside id="sidebar">
+    <button class="newChat" id="newChatBtn"><span style="font-size:18px">＋</span> แชตใหม่</button>
+    <div class="chatList" id="chatList"></div>
+    <button class="meBtn" id="meBtn"><div class="avatar" id="meAvatar" style="--a:36px"></div><b id="meName"></b><span style="color:var(--muted)">⋯</span></button>
+    <div class="menu hide" id="meMenu">
+      <button id="mUsers" class="hide">👥 จัดการผู้ใช้</button>
+      <button id="mPin">🔑 เปลี่ยน PIN</button>
+      <button id="mLogout">↩️ ออกจากระบบ</button>
+    </div>
+  </aside>
+  <main>
+    <header>
+      <button class="iconBtn" id="menuBtn" aria-label="เมนู">☰</button>
+      <h2 id="chatTitle">ผู้ช่วย AI</h2>
+      <button class="iconBtn" id="newChatBtn2" aria-label="แชตใหม่">✎</button>
+    </header>
+    <div id="thread"><div class="inner" id="inner"></div></div>
+    <div class="composer">
+      <div class="box">
+        <textarea id="input" rows="1" placeholder="พิมพ์หรือกดไมค์เพื่อสั่งงาน…"></textarea>
+        <button class="round" id="micBtn" aria-label="พูด">🎤</button>
+        <button class="round" id="sendBtn" aria-label="ส่ง" disabled>↑</button>
+      </div>
+      <div class="foot">ผู้ช่วย AI อาจผิดพลาดได้ ข้อมูลสำคัญควรตรวจสอบอีกครั้ง</div>
+    </div>
+  </main>
+</div>
+
+<!-- เปลี่ยน PIN ของตัวเอง -->
+<div class="modal hide" id="pinModal">
+  <form class="sheet" id="pinForm" autocomplete="off">
+    <h3>เปลี่ยน PIN <button type="button" class="iconBtn" data-close>✕</button></h3>
+    <div class="field"><label>PIN ปัจจุบัน</label><input id="cpOld" type="password" inputmode="numeric" required></div>
+    <div class="row2">
+      <div class="field"><label>PIN ใหม่ (4–8 หลัก)</label><input id="cpNew" type="password" inputmode="numeric" pattern="\d{4,8}" required></div>
+      <div class="field"><label>ยืนยัน PIN ใหม่</label><input id="cpNew2" type="password" inputmode="numeric" pattern="\d{4,8}" required></div>
+    </div>
+    <div class="err" id="cpErr"></div>
+    <button class="btn" type="submit">บันทึก</button>
+  </form>
+</div>
+
+<!-- จัดการผู้ใช้ (ผู้ดูแล) -->
+<div class="modal hide" id="usersModal">
+  <div class="sheet">
+    <h3>จัดการผู้ใช้ <button type="button" class="iconBtn" data-close>✕</button></h3>
+    <div id="userRows"></div>
+    <button class="btn ghost" id="addUserBtn" style="margin-top:6px">＋ เพิ่มผู้ใช้</button>
+  </div>
+</div>
+
+<!-- เพิ่ม/แก้ไขผู้ใช้ -->
+<div class="modal hide" id="editModal">
+  <form class="sheet" id="editForm" autocomplete="off">
+    <h3><span id="edTitle">เพิ่มผู้ใช้</span> <button type="button" class="iconBtn" data-close>✕</button></h3>
+    <div class="field"><label>ชื่อ</label><input id="edName" maxlength="40" required></div>
+    <div class="field"><label>รูปประจำตัว</label><div class="emojis" id="edEmojis"></div></div>
+    <div class="field"><label>สี</label><div class="colors" id="edColors"></div></div>
+    <div class="row2">
+      <div class="field"><label>สิทธิ์</label><select id="edRole"><option value="user">ผู้ใช้ทั่วไป</option><option value="admin">ผู้ดูแลระบบ</option></select></div>
+      <div class="field"><label id="edPinLabel">PIN (4–8 หลัก)</label><input id="edPin" type="password" inputmode="numeric" pattern="\d{4,8}"></div>
+    </div>
+    <div class="hint" id="edPinHint"></div>
+    <label id="edDisabledWrap" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:14.5px"><input type="checkbox" id="edDisabled"> ระงับการใช้งานชั่วคราว</label>
+    <div class="err" id="edErr"></div>
+    <button class="btn" type="submit">บันทึก</button>
+    <button class="btn danger hide" type="button" id="edDelete" style="margin-top:10px">ลบผู้ใช้นี้</button>
+  </form>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const lsGet = k => { try { return localStorage.getItem(k); } catch(e) { return null; } };
+const lsSet = (k, v) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch(e) {} };
+
+const EMOJIS = ['😀','😎','🧑','👩','👨','👧','👦','👵','👴','🐱','🐶','🦊','🐼','🌸','⭐','⚽'];
+const COLORS = ['#5FA0E8','#8B7CF6','#4FD1C5','#F6AD55','#F687B3','#68D391','#FC8181','#A0AEC0'];
+const ERRORS = {
+  'wrong-pin':'PIN ไม่ถูกต้อง', 'locked':'ใส่ PIN ผิดหลายครั้ง ระบบล็อกชั่วคราว', 'bad-pin':'PIN ต้องเป็นตัวเลข 4–8 หลัก',
+  'bad-name':'กรุณาใส่ชื่อ', 'name-taken':'ชื่อนี้มีผู้ใช้แล้ว', 'last-admin':'ต้องมีผู้ดูแลระบบอย่างน้อย 1 คน',
+  'cannot-disable':'ระงับบัญชีนี้ไม่ได้', 'cannot-delete-self':'ลบบัญชีตัวเองไม่ได้', 'bad-setup-code':'รหัสตั้งค่าไม่ถูกต้อง',
+  'no-setup-code':'ยังไม่ได้ตั้ง SETUP_CODE ใน Netlify (Site configuration → Environment variables)',
+  'already-setup':'ระบบตั้งค่าไปแล้ว', 'no-server-key':'ยังไม่ได้ตั้ง ANTHROPIC_API_KEY ใน Netlify',
+  'busy':'ระบบ AI มีผู้ใช้มาก ลองใหม่อีกครั้งในอีกสักครู่', 'failed':'เชื่อมต่อระบบ AI ไม่สำเร็จ', 'network':'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบอินเทอร์เน็ต'
+};
+const errText = e => ERRORS[e] || 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง';
+
+let token = lsGet('as_token'), me = null, chats = [], chatId = null, busy = false, profiles = [];
+
+function toast(msg){
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+function show(view){
+  ['bootView','setupView','pickView','pinView','appView'].forEach(v => $(v).classList.toggle('hide', v !== view));
+}
+async function api(path, opts = {}){
+  const headers = { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) };
+  let r;
+  try { r = await fetch('/api/' + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined }); }
+  catch(e) { throw { error: 'network' }; }
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401 && data.error === 'unauthorized' && token) { logout(); throw data; }
+  if (!r.ok) throw { status: r.status, ...data };
+  return data;
+}
+function avatarEl(u, size){
+  return `<div class="avatar" style="--a:${size}px;--c:${esc(u.color)}">${esc(u.avatar)}</div>`;
+}
+function emojiPicker(el, cur, onPick){
+  el.innerHTML = EMOJIS.map(e => `<button type="button" class="${e===cur?'on':''}">${e}</button>`).join('');
+  el.onclick = ev => { const b = ev.target.closest('button'); if(!b) return;
+    el.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); onPick(b.textContent); };
+}
+function colorPicker(el, cur, onPick){
+  el.innerHTML = COLORS.map(c => `<button type="button" data-c="${c}" class="${c===cur?'on':''}" style="background:${c}"></button>`).join('');
+  el.onclick = ev => { const b = ev.target.closest('button'); if(!b) return;
+    el.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); onPick(b.dataset.c); };
+}
+
+/* ================= เริ่มต้น ================= */
+async function boot(){
+  show('bootView');
+  if (token) {
+    try { me = (await api('me')).user; return enterApp(); } catch(e) { if (e.error !== 'unauthorized') {} }
+  }
+  try {
+    const s = await api('status');
+    if (s.setup) return showSetup();
+    profiles = s.users;
+    showPick();
+  } catch(e) {
+    $('bootView').innerHTML = `<div class="card" style="text-align:center">${esc(errText(e.error))}<br><br><button class="btn" onclick="boot()">ลองใหม่</button></div>`;
+  }
+}
+
+/* ---------- ตั้งค่าครั้งแรก ---------- */
+let suAvatar = EMOJIS[0];
+function showSetup(){
+  show('setupView');
+  emojiPicker($('suEmojis'), suAvatar, e => suAvatar = e);
+}
+$('setupForm').onsubmit = async ev => {
+  ev.preventDefault(); $('suErr').textContent = '';
+  if ($('suPin').value !== $('suPin2').value) { $('suErr').textContent = 'PIN ทั้งสองช่องไม่ตรงกัน'; return; }
+  try {
+    const r = await api('setup', { method:'POST', body:{ code:$('suCode').value, name:$('suName').value, pin:$('suPin').value, avatar:suAvatar, color:COLORS[0] } });
+    token = r.token; lsSet('as_token', token); me = r.user; enterApp();
+  } catch(e) { $('suErr').textContent = errText(e.error); }
+};
+
+/* ---------- เลือกผู้ใช้ + PIN ---------- */
+let pinUser = null, pin = '';
+function showPick(){
+  show('pickView');
+  $('profiles').innerHTML = profiles.map(u => `<button class="profile" data-id="${esc(u.id)}">${avatarEl(u,72)}<span>${esc(u.name)}</span></button>`).join('')
+    || '<div class="empty">ยังไม่มีผู้ใช้</div>';
+  $('profiles').onclick = ev => { const b = ev.target.closest('.profile'); if (b) showPin(profiles.find(u => u.id === b.dataset.id)); };
+  const last = lsGet('as_last');
+  if (profiles.length === 1) showPin(profiles[0]);
+  else if (last && profiles.some(u => u.id === last)) showPin(profiles.find(u => u.id === last));
+}
+function showPin(u){
+  pinUser = u; pin = '';
+  show('pinView');
+  $('pinAvatar').style.setProperty('--c', u.color); $('pinAvatar').textContent = u.avatar;
+  $('pinName').textContent = u.name;
+  $('pinMsg').textContent = '';
+  $('pinBack').classList.toggle('hide', profiles.length < 2);
+  drawDots();
+}
+function drawDots(){
+  const n = Math.max(4, pin.length);
+  $('dots').innerHTML = Array.from({length:n}, (_, i) => `<i class="${i < pin.length ? 'on' : ''}"></i>`).join('');
+}
+$('keypad').innerHTML = ['1','2','3','4','5','6','7','8','9','⌫','0','✓']
+  .map(k => `<button class="key ${k==='⌫'?'fn':''} ${k==='✓'?'go':''}" data-k="${k}">${k}</button>`).join('');
+$('keypad').onclick = ev => { const b = ev.target.closest('.key'); if (b) pinKey(b.dataset.k); };
+document.addEventListener('keydown', ev => {
+  if ($('pinView').classList.contains('hide')) return;
+  if (/^\d$/.test(ev.key)) pinKey(ev.key);
+  else if (ev.key === 'Backspace') pinKey('⌫');
+  else if (ev.key === 'Enter') pinKey('✓');
+});
+let pinSending = false;
+async function pinKey(k){
+  if (pinSending) return;
+  if (k === '⌫') pin = pin.slice(0, -1);
+  else if (k === '✓') return submitPin();
+  else if (pin.length < 8) pin += k;
+  $('pinMsg').textContent = '';
+  drawDots();
+}
+async function submitPin(){
+  if (pin.length < 4) { $('pinMsg').textContent = 'PIN อย่างน้อย 4 หลัก'; return; }
+  pinSending = true;
+  try {
+    const r = await api('login', { method:'POST', body:{ userId: pinUser.id, pin } });
+    token = r.token; lsSet('as_token', token); lsSet('as_last', pinUser.id); me = r.user;
+    enterApp();
+  } catch(e) {
+    pin = ''; drawDots();
+    $('dots').classList.remove('shake'); void $('dots').offsetWidth; $('dots').classList.add('shake');
+    if (e.error === 'locked') {
+      const min = Math.max(1, Math.ceil((e.until - Date.now()) / 60000));
+      $('pinMsg').textContent = `ใส่ PIN ผิดหลายครั้ง — ลองใหม่ได้ในอีก ${min} นาที`;
+    } else if (e.error === 'wrong-pin') {
+      $('pinMsg').textContent = 'PIN ไม่ถูกต้อง' + (e.left > 0 && e.left < 3 ? ` (เหลืออีก ${e.left} ครั้งก่อนล็อก)` : '');
+    } else $('pinMsg').textContent = errText(e.error);
+  } finally { pinSending = false; }
+}
+$('pinBack').onclick = () => { lsSet('as_last', null); showPick(); };
+
+function logout(){
+  token = null; me = null; chatId = null; busy = false; stopMic(); lsSet('as_token', null);
+  $('meMenu').classList.add('hide');
+  boot();
+}
+
+/* ================= แอปหลัก ================= */
+function enterApp(){
+  show('appView');
+  $('meAvatar').style.setProperty('--c', me.color); $('meAvatar').textContent = me.avatar;
+  $('meName').textContent = me.name;
+  $('mUsers').classList.toggle('hide', me.role !== 'admin');
+  newChat();
+  loadChats();
+}
+async function loadChats(){
+  try { chats = (await api('chats')).chats; } catch(e) { chats = []; }
+  drawChats();
+}
+function drawChats(){
+  if (!chats.length) { $('chatList').innerHTML = '<div class="empty">ยังไม่มีประวัติการคุย</div>'; return; }
+  const day = 864e5, now = Date.now();
+  const groups = [['วันนี้', c => now - c.updatedAt < day], ['7 วันที่ผ่านมา', c => now - c.updatedAt < 7*day], ['ก่อนหน้านี้', () => true]];
+  const used = new Set(); let html = '';
+  for (const [label, test] of groups) {
+    const items = chats.filter(c => !used.has(c.id) && test(c));
+    if (!items.length) continue;
+    items.forEach(c => used.add(c.id));
+    html += `<h4>${label}</h4>` + items.map(c =>
+      `<div class="chatItem ${c.id===chatId?'on':''}" data-id="${esc(c.id)}"><button class="t">${esc(c.title)}</button><button class="x" aria-label="ลบ">🗑</button></div>`).join('');
+  }
+  $('chatList').innerHTML = html;
+}
+$('chatList').onclick = async ev => {
+  const item = ev.target.closest('.chatItem'); if (!item) return;
+  const id = item.dataset.id;
+  if (ev.target.closest('.x')) {
+    if (!confirm('ลบบทสนทนานี้?')) return;
+    try { await api('chats/' + id, { method:'DELETE' }); } catch(e) { return toast(errText(e.error)); }
+    chats = chats.filter(c => c.id !== id);
+    if (id === chatId) newChat(); else drawChats();
+    return;
+  }
+  openChat(id);
+};
+async function openChat(id){
+  if (busy) return toast('รอให้ตอบเสร็จก่อนนะครับ');
+  closeSidebar();
+  try {
+    const { chat } = await api('chats/' + id);
+    chatId = chat.id;
+    $('chatTitle').textContent = chat.title;
+    $('inner').innerHTML = '';
+    chat.messages.forEach(m => m.role === 'user' ? addUser(m.content) : addAI(m.content));
+    drawChats(); scrollDown(true);
+  } catch(e) { toast(errText(e.error)); }
+}
+function newChat(){
+  if (busy) return;
+  chatId = null; closeSidebar();
+  $('chatTitle').textContent = 'ผู้ช่วย AI';
+  const hour = new Date().getHours();
+  const hi = hour < 12 ? 'สวัสดีตอนเช้า' : hour < 17 ? 'สวัสดีตอนบ่าย' : 'สวัสดีตอนเย็น';
+  const ideas = [
+    ['🍜 หาร้านอาหาร', 'แนะนำร้านอาหารญี่ปุ่นอร่อยๆ แถวสยาม เปิดตอนเย็น'],
+    ['📅 วางแผนวัน', 'ช่วยจัดตารางวันเสาร์นี้ให้หน่อย มีธุระ 3 อย่าง'],
+    ['💡 ค่าน้ำค่าไฟ', 'จ่ายค่าไฟการไฟฟ้านครหลวงทางออนไลน์ได้ช่องทางไหนบ้าง'],
+    ['✍️ ช่วยเขียน', 'ช่วยเขียนข้อความจองโต๊ะร้านอาหาร 4 คน คืนวันศุกร์']
+  ];
+  $('inner').innerHTML = `<div class="welcome"><div class="orb" style="--s:76px"></div>
+    <h3>${hi} คุณ${esc(me.name)}</h3><p>วันนี้ให้ผู้ช่วยทำอะไรให้ดีครับ</p>
+    <div class="chips">${ideas.map(([t, q]) => `<button class="chip" data-q="${esc(q)}">${t}<small>${esc(q)}</small></button>`).join('')}</div></div>`;
+  $('inner').querySelector('.chips').onclick = ev => { const c = ev.target.closest('.chip'); if (c) send(c.dataset.q); };
+  drawChats();
+  if (window.innerWidth > 820) $('input').focus();
+}
+[$('newChatBtn'), $('newChatBtn2')].forEach(b => b.onclick = newChat);
+
+/* ---------- ข้อความ ---------- */
+function renderMd(text){
+  if (window.marked && window.DOMPurify) {
+    const html = DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }));
+    return html.replace(/<a /g, '<a target="_blank" rel="noopener" ');
+  }
+  return esc(text).replace(/\n/g, '<br>');
+}
+function scrollDown(force){
+  const t = $('thread');
+  if (force || t.scrollHeight - t.scrollTop - t.clientHeight < 160) t.scrollTop = t.scrollHeight;
+}
+function addUser(text){
+  const w = $('inner').querySelector('.welcome'); if (w) w.remove();
+  const d = document.createElement('div'); d.className = 'msg user';
+  d.innerHTML = `<div class="body"></div>`; d.querySelector('.body').textContent = text;
+  $('inner').appendChild(d); return d;
+}
+function addAI(text){
+  const d = document.createElement('div'); d.className = 'msg ai';
+  d.innerHTML = `<div class="orb"></div><div class="body"><div class="md"></div><div class="tools hide">
+    <button data-a="copy">📋 คัดลอก</button><button data-a="speak">🔊 อ่านออกเสียง</button></div></div>`;
+  d._text = text || '';
+  if (text) { d.querySelector('.md').innerHTML = renderMd(text); d.querySelector('.tools').classList.remove('hide'); }
+  d.querySelector('.tools').onclick = ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.a === 'copy') { navigator.clipboard?.writeText(d._text).then(() => toast('คัดลอกแล้ว')); }
+    else speak(d._text, b);
+  };
+  $('inner').appendChild(d); return d;
+}
+
+/* ---------- ส่งข้อความ + รับคำตอบแบบสตรีม ---------- */
+async function send(text){
+  text = (text ?? $('input').value).trim();
+  if (!text || busy) return;
+  stopMic();
+  busy = true; $('input').value = ''; autoSize(); updateSend();
+  addUser(text);
+  const d = addAI('');
+  const orb = d.querySelector('.orb'), md = d.querySelector('.md');
+  orb.classList.add('busy');
+  md.innerHTML = '<div class="status">กำลังคิด…</div>';
+  scrollDown(true);
+
+  let answer = '', raf = 0, failed = null;
+  const paint = () => { raf = 0; md.innerHTML = renderMd(answer); scrollDown(); };
+  try {
+    const r = await fetch('/api/chat', {
+      method:'POST', headers:{ 'content-type':'application/json', authorization:'Bearer ' + token },
+      body: JSON.stringify({ chatId, message: text })
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); if (r.status === 401) return logout(); throw e; }
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith('data: ')) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.type === 'meta') {
+          if (!chatId) { chatId = ev.chatId; $('chatTitle').textContent = ev.title; }
+        } else if (ev.type === 'status') {
+          if (!answer) md.innerHTML = ev.text ? `<div class="status">${esc(ev.text)}</div>` : '';
+          else if (ev.text) md.innerHTML = renderMd(answer) + `<div class="status">${esc(ev.text)}</div>`;
+        } else if (ev.type === 'text') {
+          answer += ev.text;
+          if (!raf) raf = requestAnimationFrame(paint);
+        } else if (ev.type === 'error') failed = ev.message;
+      }
+    }
+  } catch(e) { failed = e.error || 'network'; }
+  cancelAnimationFrame(raf);
+  orb.classList.remove('busy');
+  d._text = answer;
+  md.innerHTML = answer ? renderMd(answer) : '';
+  if (answer) d.querySelector('.tools').classList.remove('hide');
+  if (failed || !answer) {
+    const p = document.createElement('div'); p.className = 'errLine';
+    p.innerHTML = `⚠ ${esc(errText(failed || 'failed'))}<button>ลองใหม่</button>`;
+    p.querySelector('button').onclick = () => { d.previousElementSibling?.remove(); d.remove(); send(text); };
+    md.appendChild(p);
+  }
+  busy = false; updateSend(); scrollDown();
+  loadChats();
+}
+
+/* ---------- ช่องพิมพ์ ---------- */
+const input = $('input');
+function autoSize(){ input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
+function updateSend(){ $('sendBtn').disabled = busy || !input.value.trim(); }
+input.addEventListener('input', () => { autoSize(); updateSend(); });
+input.addEventListener('keydown', ev => {
+  // คอมพิวเตอร์: Enter = ส่ง, Shift+Enter = ขึ้นบรรทัดใหม่ · มือถือ: Enter = ขึ้นบรรทัดใหม่
+  if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing && window.matchMedia('(pointer:fine)').matches) { ev.preventDefault(); send(); }
+});
+$('sendBtn').onclick = () => send();
+
+/* ---------- สั่งด้วยเสียง: กดไมค์ → พูด → หยุดพูดแล้วส่งให้อัตโนมัติ ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, micBase = '', micFinal = '';
+if (!SR) $('micBtn').classList.add('hide');
+function stopMic(){ if (rec) { rec.onend = null; try { rec.stop(); } catch(e) {} rec = null; } $('micBtn').classList.remove('rec'); }
+$('micBtn').onclick = () => {
+  if (rec) { rec.stop(); return; }                 // กดซ้ำ = จบการพูด → ส่ง
+  if (busy) return toast('รอให้ตอบเสร็จก่อนนะครับ');
+  try { speechSynthesis?.cancel(); } catch(e) {}
+  rec = new SR();
+  rec.lang = 'th-TH'; rec.interimResults = true; rec.continuous = false;
+  micBase = input.value.trim(); micFinal = '';
+  rec.onresult = ev => {
+    let fin = '', mid = '';
+    for (let i = 0; i < ev.results.length; i++) (ev.results[i].isFinal ? (fin += ev.results[i][0].transcript) : (mid += ev.results[i][0].transcript));
+    micFinal = (fin + ' ' + mid).trim();
+    input.value = [micBase, micFinal].filter(Boolean).join(' ');
+    autoSize(); updateSend();
+  };
+  rec.onerror = ev => {
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') toast('กรุณาอนุญาตให้ใช้ไมโครโฟน');
+    else if (ev.error === 'no-speech') toast('ไม่ได้ยินเสียง ลองพูดใหม่อีกครั้ง');
+  };
+  rec.onend = () => {
+    rec = null; $('micBtn').classList.remove('rec');
+    if (micFinal) send();
+  };
+  try { rec.start(); $('micBtn').classList.add('rec'); } catch(e) { rec = null; }
+};
+
+/* ---------- อ่านคำตอบออกเสียง ---------- */
+function speak(text, btn){
+  if (!('speechSynthesis' in window)) return toast('เครื่องนี้ไม่รองรับการอ่านออกเสียง');
+  if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }
+  const plain = text.replace(/```[\s\S]*?```/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[#*_`>|]/g, '').replace(/\n{2,}/g, '\n');
+  const u = new SpeechSynthesisUtterance(plain);
+  u.lang = /[฀-๿]/.test(plain) ? 'th-TH' : 'en-US';
+  const v = speechSynthesis.getVoices().find(v => v.lang.replace('_','-').startsWith(u.lang.slice(0, 2)));
+  if (v) u.voice = v;
+  speechSynthesis.speak(u);
+}
+
+/* ---------- แถบข้าง (มือถือ) + เมนู ---------- */
+function closeSidebar(){ $('sidebar').classList.remove('open'); $('scrim').classList.add('hide'); }
+$('menuBtn').onclick = () => { $('sidebar').classList.add('open'); $('scrim').classList.remove('hide'); };
+$('scrim').onclick = closeSidebar;
+$('meBtn').onclick = ev => { ev.stopPropagation(); $('meMenu').classList.toggle('hide'); };
+document.addEventListener('click', ev => { if (!ev.target.closest('#meMenu')) $('meMenu').classList.add('hide'); });
+$('mLogout').onclick = logout;
+document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', ev => {
+  if (ev.target === m || ev.target.closest('[data-close]')) m.classList.add('hide');
+}));
+
+/* ---------- เปลี่ยน PIN ---------- */
+$('mPin').onclick = () => { $('pinForm').reset(); $('cpErr').textContent = ''; $('pinModal').classList.remove('hide'); };
+$('pinForm').onsubmit = async ev => {
+  ev.preventDefault(); $('cpErr').textContent = '';
+  if ($('cpNew').value !== $('cpNew2').value) { $('cpErr').textContent = 'PIN ใหม่ทั้งสองช่องไม่ตรงกัน'; return; }
+  try {
+    const r = await api('me/pin', { method:'POST', body:{ currentPin:$('cpOld').value, newPin:$('cpNew').value } });
+    token = r.token; lsSet('as_token', token);
+    $('pinModal').classList.add('hide'); toast('เปลี่ยน PIN แล้ว');
+  } catch(e) { $('cpErr').textContent = e.error === 'wrong-pin' ? 'PIN ปัจจุบันไม่ถูกต้อง' : errText(e.error); }
+};
+
+/* ---------- จัดการผู้ใช้ ---------- */
+let users = [], editing = null, edAvatar = EMOJIS[0], edColor = COLORS[0];
+$('mUsers').onclick = () => { $('usersModal').classList.remove('hide'); loadUsers(); };
+async function loadUsers(){
+  try { users = (await api('users')).users; } catch(e) { return toast(errText(e.error)); }
+  $('userRows').innerHTML = users.map(u => `<div class="uRow">${avatarEl(u,42)}<div class="info"><b>${esc(u.name)}${u.id===me.id?' (คุณ)':''}</b>
+    ${u.role==='admin'?'<span class="badge admin">ผู้ดูแล</span>':'<span class="badge">ผู้ใช้</span>'}${u.disabled?'<span class="badge off">ระงับอยู่</span>':''}</div>
+    <button data-id="${esc(u.id)}">แก้ไข</button></div>`).join('');
+  $('userRows').onclick = ev => { const b = ev.target.closest('button[data-id]'); if (b) openEdit(users.find(u => u.id === b.dataset.id)); };
+}
+$('addUserBtn').onclick = () => openEdit(null);
+function openEdit(u){
+  editing = u; $('edErr').textContent = '';
+  $('edTitle').textContent = u ? 'แก้ไขผู้ใช้' : 'เพิ่มผู้ใช้';
+  $('edName').value = u ? u.name : '';
+  $('edRole').value = u ? u.role : 'user';
+  $('edPin').value = ''; $('edPin').required = !u;
+  $('edPinLabel').textContent = u ? 'PIN ใหม่ (เว้นว่างถ้าไม่เปลี่ยน)' : 'PIN (4–8 หลัก)';
+  $('edPinHint').textContent = u ? 'ตั้ง PIN ใหม่ให้ผู้ใช้ที่ลืม PIN — จะปลดล็อกบัญชีให้ด้วย' : 'แจ้ง PIN นี้ให้ผู้ใช้ แล้วให้เขาเปลี่ยนเองได้ที่เมนู "เปลี่ยน PIN"';
+  $('edDisabled').checked = !!u?.disabled;
+  $('edDisabledWrap').classList.toggle('hide', !u || u.id === me.id);
+  $('edDelete').classList.toggle('hide', !u || u.id === me.id);
+  edAvatar = u ? u.avatar : (EMOJIS.find(e => !users.some(x => x.avatar === e)) || EMOJIS[0]);
+  edColor = u ? u.color : (COLORS.find(c => !users.some(x => x.color === c)) || COLORS[0]);
+  emojiPicker($('edEmojis'), edAvatar, e => edAvatar = e);
+  colorPicker($('edColors'), edColor, c => edColor = c);
+  $('editModal').classList.remove('hide');
+}
+$('editForm').onsubmit = async ev => {
+  ev.preventDefault(); $('edErr').textContent = '';
+  const b = { name:$('edName').value, role:$('edRole').value, avatar:edAvatar, color:edColor };
+  if ($('edPin').value) b.pin = $('edPin').value;
+  try {
+    if (editing) {
+      if (editing.id !== me.id) b.disabled = $('edDisabled').checked;
+      await api('users/' + editing.id, { method:'PATCH', body:b });
+      if (editing.id === me.id) { me = { ...me, ...b }; $('meAvatar').style.setProperty('--c', me.color); $('meAvatar').textContent = me.avatar; $('meName').textContent = me.name; }
+    } else await api('users', { method:'POST', body:b });
+    $('editModal').classList.add('hide'); toast('บันทึกแล้ว'); loadUsers();
+  } catch(e) { $('edErr').textContent = errText(e.error); }
+};
+$('edDelete').onclick = async () => {
+  if (!editing || !confirm(`ลบผู้ใช้ "${editing.name}" และประวัติแชตทั้งหมดของเขา?`)) return;
+  try { await api('users/' + editing.id, { method:'DELETE' }); $('editModal').classList.add('hide'); toast('ลบแล้ว'); loadUsers(); }
+  catch(e) { $('edErr').textContent = errText(e.error); }
+};
+
+boot();
+</script>
+</body>
+</html>
