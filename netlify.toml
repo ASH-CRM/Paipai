@@ -1,2 +1,10 @@
+# Netlify ดึงโค้ดจาก GitHub แล้ว build เอง (ต้องมีขั้นติดตั้งแพ็กเกจ — ลากไฟล์ zip ใช้ไม่ได้)
+[build]
+  publish = "public"
+
 [functions]
   directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "22"

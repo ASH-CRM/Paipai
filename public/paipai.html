@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>PAI PAI — แอปเดียว เที่ยวทั่วโลก</title>
+<script>
+/* ★ เปิดหน้านี้ตรงๆ โดยยังไม่ล็อกอิน → ไปหน้าล็อกอินก่อน (ในหน้าผู้ช่วย AI ใช้ผ่านกรอบด้านล่างได้เลย) */
+(function(){ if(window.parent!==window) return; var t=null; try{ t=localStorage.getItem('as_token'); }catch(e){} if(!t) location.replace('./'); })();
+</script>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0E1B2C">
 <meta name="mobile-web-app-capable" content="yes">
@@ -8214,5 +8218,133 @@ ${isJapan? '- ★ ญี่ปุ่น: ระบุชื่อขบวน/�
   };
 })();
 
+
+/* ============ 🤖 สะพานให้ผู้ช่วย AI สั่งเมนูต่างๆ แทนผู้ใช้ (หน้าผู้ช่วยเรียกผ่าน window.PAIPAI_AGENT) ============ */
+(function(){
+  const gid=id=>document.getElementById(id);
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const fire=id=>{ const b=gid(id); if(!b) return; if(typeof b.onclick==='function') b.onclick(); else b.click(); };
+  const closeAll=()=>{ ['routeHome','planHome','rideHome','payHome','stayHome'].forEach(fire); };
+  async function waitFor(test, ms){
+    const t0=Date.now();
+    while(Date.now()-t0<ms){ if(test()) return true; await sleep(300); }
+    return false;
+  }
+  const textOf=(el,max)=>{
+    const s=((el&&el.innerText)||'').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+    return s.length>max ? s.slice(0,max)+'…' : s;
+  };
+  function setVal(id,v){
+    const el=gid(id); if(!el) return;
+    el.value=v||'';
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+    el.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  function clickChip(boxId, match){
+    const box=gid(boxId); if(!box) return false;
+    const b=[...box.querySelectorAll('button')].find(x=>match(x.textContent.toLowerCase()));
+    if(b){ b.click(); return true; }
+    return false;
+  }
+  const clearLists=ids=>ids.forEach(id=>{ const e=gid(id); if(e) e.innerHTML=''; });
+  // เลื่อนให้เห็นผลลัพธ์ (ในหน้าผู้ช่วย กรอบด้านล่างเตี้ย ผู้ใช้ต้องเห็นข้อมูลทันที ไม่ใช่ฟอร์ม)
+  const reveal=id=>{ const e=gid(id); if(e) try{ e.scrollIntoView({behavior:'smooth',block:'start'}); }catch(err){} };
+
+  const OPEN={
+    home:()=>closeAll(),
+    translator:()=>{ closeAll(); gid('homeScreen').classList.add('hide'); },
+    route:()=>{ closeAll(); fire('goRoute'); },
+    plan:()=>{ closeAll(); fire('goPlan'); },
+    ride:()=>{ closeAll(); fire('goRide'); },
+    pay:()=>{ closeAll(); fire('goPay'); },
+    stay:()=>{ closeAll(); fire('goStay'); }
+  };
+  const STYLE_KEY={culture:'culture',food:'food',shopping:'shopping',photo:'photo',themepark:'theme park',
+    nature:'nature',nightlife:'nightlife',museum:'museum',cafe:'café',games:'games'};
+  const MONTHS=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+  // ย่อแผนเที่ยวให้ AI อ่าน (ตัวเต็มแสดงอยู่ในหน้า Plan Pai แล้ว)
+  function compactPlan(d){
+    if(!d) return null;
+    return {
+      city:d.city, summary:d.summary, budget:d.budget, tips:(d.tips||[]).slice(0,5),
+      days:(d.days||[]).map(x=>({day:x.day, city:x.city, title:x.title, area:x.area, error:x.error||undefined,
+        items:(x.items||[]).map(it=>[it.time,it.name,it.cost].filter(Boolean).join(' · '))}))
+    };
+  }
+
+  window.PAIPAI_AGENT={
+    open(menu){
+      if(!OPEN[menu]) return {ok:false, error:'ไม่มีเมนู '+menu};
+      OPEN[menu]();
+      return {ok:true};
+    },
+
+    async planTrip(a){
+      OPEN.plan();
+      fire('pReset');
+      setVal('pCity', a.city);
+      if(a.area) gid('pArea').value=a.area;
+      if(!clickChip('pDays', t=>parseInt(t,10)===Number(a.days))) return {ok:false, error:'Plan Pai จัดได้ 1-7 วัน'};
+      if(a.month>=1 && a.month<=12) clickChip('pMonth', t=>t===MONTHS[a.month-1]);
+      (a.styles||[]).forEach(s=>{ if(STYLE_KEY[s]) clickChip('pStyle', t=>t.includes(STYLE_KEY[s])); });
+      if(a.who) clickChip('pWho', t=>t.includes(a.who));
+      if(a.budget) clickChip('pBudget', t=>t.includes(a.budget));
+      if(a.hidden_gems) clickChip('pGemsRow', ()=>true);
+      if(a.must_visit) gid('pMust').value=a.must_visit;
+      await sleep(400);
+      clearLists(['pCityList','pAreaList','pMustList']);
+      gid('pGo').click();
+      await sleep(400);
+      reveal('pLoader');
+      if(!await waitFor(()=>!gid('pGo').disabled, 5*60000)) return {ok:false, error:'ใช้เวลานานเกินไป'};
+      if(gid('pStatus').className==='err') return {ok:false, error:gid('pStatus').textContent};
+      let saved=null; try{ saved=JSON.parse(localStorage.getItem('pp_last_plan')||'null'); }catch(e){}
+      if(!saved) return {ok:false, error:textOf(gid('pStatus'),300)||'จัดแผนไม่สำเร็จ'};
+      reveal('pResult');
+      return {ok:true, plan:compactPlan(saved.data)};
+    },
+
+    async findRoute(a){
+      OPEN.route();
+      if(a.city) setVal('rCity', a.city);
+      setVal('rTo', a.to);
+      if(a.from) setVal('rFrom', a.from);
+      else { fire('rGps'); await waitFor(()=>gid('rFrom').value.trim(), 15000); }
+      await sleep(400);
+      clearLists(['rCityList','rFromList','rToList','rNearList']);
+      gid('rGo').click();
+      await waitFor(()=>gid('rGo').disabled, 20000);
+      reveal('rLoader');
+      if(!await waitFor(()=>!gid('rGo').disabled, 3*60000)) return {ok:false, error:'ใช้เวลานานเกินไป'};
+      reveal(gid('rOptions').innerText.trim() ? 'rOptions' : 'rStatus');
+      const opts=textOf(gid('rOptions'),3000), st=textOf(gid('rStatus'),300);
+      return opts ? {ok:true, routes:opts} : {ok:false, error:st||'ไม่พบเส้นทาง'};
+    },
+
+    async findStay(a){
+      closeAll(); window.openStayScreen(a.city, a.area||'');
+      await sleep(200);
+      gid('stGo').click();
+      await waitFor(()=>gid('stGo').disabled, 5000);
+      reveal('stLoader');
+      if(!await waitFor(()=>!gid('stGo').disabled, 2*60000)) return {ok:false, error:'ใช้เวลานานเกินไป'};
+      reveal('stBox');
+      return {ok:true, stays:textOf(gid('stBox'),3000)};
+    },
+
+    async paymentGuide(a){
+      closeAll(); window.openPayScreen(a.country);
+      await sleep(300);
+      reveal('payBox');
+      return {ok:true, guide:textOf(gid('payBox'),3000)};
+    },
+
+    callRide(a){
+      closeAll(); window.openRideScreen(a.destination, a.city||'');
+      return {ok:true, apps:textOf(gid('rdApps'),800), note:'ผู้ใช้ต้องแตะเลือกแอปเรียกรถเอง'};
+    }
+  };
+})();
 </script></body>
 </html>

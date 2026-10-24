@@ -17,6 +17,16 @@ const cleanName = n => String(n || '').trim().replace(/\s+/g, ' ').slice(0, 40);
 const cleanAvatar = a => String(a || '🙂').trim().slice(0, 8) || '🙂';
 const cleanColor = c => /^#[0-9a-f]{6}$/i.test(c || '') ? c : '#5FA0E8';
 
+const MAX_MESSAGES = 80;                       // บทสนทนายาวเกินนี้ → เริ่มชุดใหม่ (ประวัติต้องต่อท้ายอย่างเดียว ตัดของเก่าไม่ได้)
+const STALE_MS = 12 * 3600e3;                  // ไม่ได้คุยเกิน 12 ชม. → เริ่มบทสนทนาใหม่
+const newConv = () => ({ messages: [], display: [], pending: [], updatedAt: Date.now() });
+const isStale = c => Date.now() - (c.updatedAt || 0) > STALE_MS;
+function toolResult(id, r) {
+  if (!r) return { type: 'tool_result', tool_use_id: id, is_error: true, content: 'ผู้ใช้ยกเลิก หรือหน้าเว็บทำคำสั่งนี้ไม่สำเร็จ' };
+  const content = typeof r.result === 'string' ? r.result : JSON.stringify(r.result ?? {});
+  return { type: 'tool_result', tool_use_id: id, is_error: !!r.isError, content: content.slice(0, 20000) || '{}' };
+}
+
 async function body(req) {
   try { return await req.json(); } catch { return {}; }
 }
@@ -161,64 +171,70 @@ export default async (req) => {
         if (u.id === me.id) return fail(400, 'cannot-delete-self');
         if (isLastAdmin) return fail(400, 'last-admin');
         await saveUsers(users.filter(x => x.id !== u.id));
-        const s = store();
-        const { blobs } = await s.list({ prefix: `chats/${u.id}/` });
-        await Promise.all(blobs.map(b => s.delete(b.key)));
+        await store().delete(`conv/${u.id}`);
         await clearLock(u.id);
         return json({ ok: true });
       }
     }
 
-    /* ---------- ประวัติแชต ---------- */
+    /* ---------- บทสนทนาปัจจุบัน (คนละชุดต่อผู้ใช้) ---------- */
     const s = store();
-    const indexKey = `chats/${me.id}/index`;
-    const loadIndex = async () => (await s.get(indexKey, { type: 'json' })) || [];
+    const convKey = `conv/${me.id}`;
 
-    if (res === 'chats') {
-      if (!id && m === 'GET') return json({ chats: await loadIndex() });
-      if (id && !/^[0-9a-f]{16}$/.test(id)) return fail(400, 'bad-id');
-      if (id && m === 'GET') {
-        const c = await s.get(`chats/${me.id}/${id}`, { type: 'json' });
-        return c ? json({ chat: c }) : fail(404, 'no-chat');
+    if (res === 'conversation') {
+      if (m === 'GET') {
+        const c = await s.get(convKey, { type: 'json' });
+        return json({ display: c && !isStale(c) ? c.display : [] });
       }
-      if (id && m === 'DELETE') {
-        await s.delete(`chats/${me.id}/${id}`);
-        await s.setJSON(indexKey, (await loadIndex()).filter(c => c.id !== id));
-        return json({ ok: true });
-      }
+      if (m === 'DELETE') { await s.delete(convKey); return json({ ok: true }); }
     }
 
     if (res === 'chat' && m === 'POST') {
-      const b = await body(req);
-      const text = String(b.message || '').trim().slice(0, 8000);
-      if (!text) return fail(400, 'empty');
       if (!process.env.ANTHROPIC_API_KEY) return fail(500, 'no-server-key');
+      const b = await body(req);
+      let conv = await s.get(convKey, { type: 'json' });
+      let reset = false;
+      if (!conv || isStale(conv)) { conv = newConv(); reset = true; }
 
-      let chat = null;
-      if (b.chatId && /^[0-9a-f]{16}$/.test(b.chatId)) chat = await s.get(`chats/${me.id}/${b.chatId}`, { type: 'json' });
-      if (!chat) chat = { id: newId(), title: text.replace(/\s+/g, ' ').slice(0, 48), createdAt: Date.now(), messages: [] };
-      chat.messages.push({ role: 'user', content: text, ts: Date.now() });
+      if (Array.isArray(b.toolResults)) {
+        // ★ หน้าเว็บทำคำสั่งเมนูเสร็จแล้ว ส่งผลกลับมา → ต่อท้ายแล้วให้ AI คุยต่อ
+        if (reset || !conv.pending?.length) return fail(409, 'no-pending');
+        const byId = new Map(b.toolResults.map(r => [r.id, r]));
+        conv.messages.push({ role: 'user', content: conv.pending.map(id => toolResult(id, byId.get(id))) });
+        conv.pending = [];
+      } else {
+        const text = String(b.message || '').trim().slice(0, 8000);
+        if (!text) return fail(400, 'empty');
+        if (conv.messages.length > MAX_MESSAGES) { conv = newConv(); reset = true; }
+        // ★ ผู้ใช้พิมพ์ใหม่ระหว่างที่คำสั่งเมนูค้างอยู่ → ปิดคำสั่งเก่าว่า "ยกเลิก" ก่อน แล้วค่อยต่อข้อความใหม่
+        const closed = (conv.pending || []).map(id => toolResult(id, null));
+        conv.pending = [];
+        conv.messages.push({ role: 'user', content: [...closed, { type: 'text', text }] });
+        conv.display.push({ role: 'user', text });
+      }
 
       const enc = new TextEncoder();
       const stream = new ReadableStream({
         async start(ctrl) {
           const send = ev => ctrl.enqueue(enc.encode('data: ' + JSON.stringify(ev) + '\n\n'));
-          send({ type: 'meta', chatId: chat.id, title: chat.title });
-          let answer = '';
+          send({ type: 'meta', reset });
           try {
-            answer = await streamReply(me, chat.messages, send);
+            const r = await streamReply(me, conv.messages, send);
+            if (r.text.trim()) conv.display.push({ role: 'assistant', text: r.text.trim() });
+            if (r.toolCalls.length) {
+              conv.pending = r.toolCalls.map(c => c.id);
+              send({ type: 'tools', calls: r.toolCalls });
+            }
           } catch (e) {
             console.error('chat failed', e?.status, e?.message);
             send({ type: 'error', message: e?.status === 429 ? 'busy' : 'failed' });
+            // ★ ไม่บันทึกรอบที่ล้มเหลว: ประวัติที่เก็บไว้ยังต่อกันสมบูรณ์ ผู้ใช้ส่งใหม่ได้
+            send({ type: 'done' });
+            ctrl.close();
+            return;
           }
-          if (answer) {
-            chat.messages.push({ role: 'assistant', content: answer, ts: Date.now() });
-            chat.updatedAt = Date.now();
-            await s.setJSON(`chats/${me.id}/${chat.id}`, chat);
-            const idx = (await loadIndex()).filter(c => c.id !== chat.id);
-            idx.unshift({ id: chat.id, title: chat.title, updatedAt: chat.updatedAt });
-            await s.setJSON(indexKey, idx.slice(0, 200));
-          }
+          conv.updatedAt = Date.now();
+          await s.setJSON(convKey, conv);
           send({ type: 'done' });
           ctrl.close();
         }

@@ -1,9 +1,0 @@
-{
-  "name": "ผู้ช่วย AI",
-  "short_name": "ผู้ช่วย AI",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#0E1A2B",
-  "theme_color": "#0E1A2B",
-  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
-}

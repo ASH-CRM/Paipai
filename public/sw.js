@@ -1,6 +1,6 @@
 // Service worker แบบเรียบง่าย: ทำให้ติดตั้งเป็นแอปได้ และเปิดหน้าแอปได้เร็ว
-const CACHE = 'paipai-v163';
-const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'paipai-v164';
+const ASSETS = ['./', './index.html', './paipai.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -16,6 +16,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return; // API ภายนอกผ่านตรง
+  // API ของแอป (ล็อกอิน/แชต/แปล) และคำขอที่ไม่ใช่ GET: ผ่านตรง ไม่แคช
+  if (e.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/.netlify/')) return;
   e.respondWith(
     fetch(e.request).then(res => {
       const copy = res.clone();
