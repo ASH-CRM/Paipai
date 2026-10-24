@@ -573,9 +573,11 @@ const TOOL_INFO = {
   find_route:    { run:'📍 กำลังหาเส้นทางใน Pa Pai…',        done:'✓ ได้เส้นทางแล้ว ดูด้านล่าง',   title:'📍 Pa Pai · แนะนำเส้นทาง' },
   find_stay:     { run:'🏨 กำลังหาที่พักใน Pak Pai…',        done:'✓ ได้ที่พักแล้ว ดูด้านล่าง',     title:'🏨 Pak Pai · หาที่พัก' },
   payment_guide: { run:'💳 กำลังเปิด Jai Pai…',             done:'✓ เปิดคู่มือจ่ายเงินแล้ว',        title:'💳 Jai Pai · จ่ายเงินต่างแดน' },
-  call_ride:     { run:'🚕 กำลังเปิด Riak Rot…',            done:'✓ แตะเลือกแอปเรียกรถด้านล่างได้เลย', title:'🚕 Riak Rot · เรียกรถ' }
+  call_ride:     { run:'🚕 กำลังเปิด Riak Rot…',            done:'✓ แตะเลือกแอปเรียกรถด้านล่างได้เลย', title:'🚕 Riak Rot · เรียกรถ' },
+  start_translator: { run:'💬 กำลังเปิด translator56…',      done:'✓ ตั้งภาษาแล้ว แตะปุ่มเริ่มพูดได้เลย', title:'💬 translator56 · แปลภาษา' },
+  convert_currency: { run:'💱 กำลังแปลงสกุลเงิน…',           done:'✓ แปลงสกุลเงินแล้ว',               title:'💱 แปลงสกุลเงิน' }
 };
-const MENU_TITLE = { home:'🧭 PAIPAI', translator:'💬 translator56 · แปลภาษา', route:TOOL_INFO.find_route.title,
+const MENU_TITLE = { home:'🧭 PAIPAI', translator:'💬 translator56 · แปลภาษา', scan:'📷 สแกนเมนู/ป้าย', doc:'📄 แปลไฟล์ / นิยาย', route:TOOL_INFO.find_route.title,
   plan:TOOL_INFO.plan_trip.title, ride:TOOL_INFO.call_ride.title, pay:TOOL_INFO.payment_guide.title, stay:TOOL_INFO.find_stay.title };
 
 let agent = null;
@@ -586,11 +588,12 @@ function openPanel(title){
 }
 function closePanel(){ $('panel').classList.add('hide'); $('appView').classList.remove('big'); $('panelSize').textContent = '⤢'; }
 $('panelClose').onclick = closePanel;
-$('panelSize').onclick = () => {
-  const big = $('appView').classList.toggle('big');
+function setBig(big){
+  $('appView').classList.toggle('big', big);
   $('panelSize').textContent = big ? '⤡' : '⤢';
   if (!big) scrollDown(true);
-};
+}
+$('panelSize').onclick = () => setBig(!$('appView').classList.contains('big'));
 // โหลดแอป PAIPAI ในกรอบด้านล่างครั้งแรกที่ต้องใช้ แล้วรอให้พร้อมรับคำสั่ง
 async function ensureAgent(){
   const f = $('frame');
@@ -615,8 +618,12 @@ async function runTool(c){
       case 'find_stay':     r = await ag.findStay(a); break;
       case 'payment_guide': r = await ag.paymentGuide(a); break;
       case 'call_ride':     r = ag.callRide(a); break;
+      case 'start_translator': r = ag.startTranslator(a); break;
+      case 'convert_currency': r = await ag.convertCurrency(a); break;
       default:              r = { ok:false, error:'ไม่รู้จักคำสั่ง ' + c.name };
     }
+    const hands = c.name === 'start_translator' || (c.name === 'open_menu' && ['translator','scan'].includes(a.menu));
+    if (hands && r && r.ok !== false) setBig(true);
     return { id: c.id, result: r, isError: !r || r.ok === false };
   } catch(e) {
     return { id: c.id, result: { ok:false, error: String(e && e.message || e) }, isError: true };

@@ -8257,7 +8257,9 @@ ${isJapan? '- ★ ญี่ปุ่น: ระบุชื่อขบวน/�
     plan:()=>{ closeAll(); fire('goPlan'); },
     ride:()=>{ closeAll(); fire('goRide'); },
     pay:()=>{ closeAll(); fire('goPay'); },
-    stay:()=>{ closeAll(); fire('goStay'); }
+    stay:()=>{ closeAll(); fire('goStay'); },
+    scan:()=>window.PAIPAI_AGENT.openScan(),
+    doc:()=>window.PAIPAI_AGENT.openDoc()
   };
   const STYLE_KEY={culture:'culture',food:'food',shopping:'shopping',photo:'photo',themepark:'theme park',
     nature:'nature',nightlife:'nightlife',museum:'museum',cafe:'café',games:'games'};
@@ -8276,8 +8278,8 @@ ${isJapan? '- ★ ญี่ปุ่น: ระบุชื่อขบวน/�
   window.PAIPAI_AGENT={
     open(menu){
       if(!OPEN[menu]) return {ok:false, error:'ไม่มีเมนู '+menu};
-      OPEN[menu]();
-      return {ok:true};
+      const r=OPEN[menu]();
+      return (r && r.ok) ? r : {ok:true};
     },
 
     async planTrip(a){
@@ -8338,6 +8340,49 @@ ${isJapan? '- ★ ญี่ปุ่น: ระบุชื่อขบวน/�
       await sleep(300);
       reveal('payBox');
       return {ok:true, guide:textOf(gid('payBox'),3000)};
+    },
+
+    // แปลภาษาสด: ตั้งคู่ภาษาให้พร้อม ผู้ใช้แตะปุ่มเริ่มพูดเอง
+    startTranslator(a){
+      OPEN.translator();
+      const set=(id,v)=>{
+        const el=gid(id); if(!el || !v) return !v;
+        if(![...el.options].some(o=>o.value===v)) return false;
+        el.value=v; el.dispatchEvent(new Event('change',{bubbles:true}));
+        return true;
+      };
+      if(!set('myLang', a.my_lang||'th-TH') || !set('theirLang', a.their_lang)) return {ok:false, error:'translator56 ยังไม่รองรับภาษานี้'};
+      return {ok:true, my:gid('myLang').selectedOptions[0].text, their:gid('theirLang').selectedOptions[0].text,
+        note:'พร้อมแล้ว ผู้ใช้แตะ "ฉันพูดก่อน" หรือ "คู่สนทนาพูดก่อน" เพื่อเริ่มแปล'};
+    },
+
+    openScan(){
+      OPEN.translator(); fire('scanBtn');
+      return {ok:true, note:'เปิดกล้องแล้ว ผู้ใช้เล็งที่เมนู/ป้าย แล้วกดถ่ายเพื่อแปล'};
+    },
+
+    openDoc(){
+      OPEN.translator(); reveal('docBtn');
+      return {ok:true, note:'ผู้ใช้ต้องแตะปุ่ม "แนบไฟล์แปล" แล้วเลือกไฟล์เอง (เบราว์เซอร์ไม่ให้ระบบเลือกไฟล์แทน)'};
+    },
+
+    async convertCurrency(a){
+      closeAll();
+      fire('fxBtn');
+      const pick=(btnId, code)=>{
+        fire(btnId);
+        const b=[...document.querySelectorAll('#fxPickGrid .fxOpt')].find(x=>(x.querySelector('.fxCode')||{}).textContent===code);
+        if(b){ b.click(); return true; }
+        gid('fxPicker').classList.remove('show');
+        return false;
+      };
+      const from=String(a.from||'THB').toUpperCase(), to=String(a.to||'THB').toUpperCase();
+      if(!pick('fxFromBtn', from) || !pick('fxToBtn', to)) return {ok:false, error:'ตัวแปลงสกุลเงินในแอปยังไม่มีสกุล '+from+' หรือ '+to};
+      gid('fxAmt').value=a.amount;
+      gid('fxAmt').dispatchEvent(new Event('input',{bubbles:true}));
+      await waitFor(()=>/≈/.test(gid('fxRate').textContent) || /ไม่ได้/.test(gid('fxRate').textContent), 15000);
+      if(!/≈/.test(gid('fxRate').textContent)) return {ok:false, error:textOf(gid('fxRate'),200)||'ดึงอัตราแลกเปลี่ยนไม่ได้'};
+      return {ok:true, amount:a.amount+' '+from, result:gid('fxOut').textContent, rate:textOf(gid('fxRate'),200)};
     },
 
     callRide(a){
